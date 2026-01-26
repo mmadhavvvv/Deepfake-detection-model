@@ -4,3 +4,6 @@ numpy
 Pillow
 torch
 torchvision
+matplotlib
+seaborn
+scikit-learn
