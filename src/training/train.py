@@ -34,9 +34,9 @@ def main():
     print(f"🚀 Training on: {DEVICE}", flush=True)
 
     # --- SCALE CONFIG ---
-    IMAGES_PER_CLASS = 15000     # Safely increased (Total 30,000 images)
-    BATCH_SIZE = 32              # Increase to 64 if you have a strong GPU
-    EPOCHS = 5                   
+    IMAGES_PER_CLASS = 2000      # Increased for better accuracy (Total 4000 images)
+    BATCH_SIZE = 32              
+    EPOCHS = 3                   
     LEARNING_RATE = 1e-4
 
     transform = transforms.Compose([
@@ -47,11 +47,13 @@ def main():
     ])
 
     # --- FAST DIRECT INDEXING ---
-    root_dir = "data/processed/train"
-    real_dir = os.path.join(root_dir, "real")
-    fake_dir = os.path.join(root_dir, "fake")
+    # --- DATASET PATH UPDATE ---
+    dataset_root = r"C:\Users\VASU TANDON\.cache\kagglehub\datasets\xhlulu\140k-real-and-fake-faces\versions\2\real_vs_fake\real-vs-fake"
+    train_dir = os.path.join(dataset_root, "train")
+    real_dir = os.path.join(train_dir, "real")
+    fake_dir = os.path.join(train_dir, "fake")
 
-    print(f"📂 Selecting {IMAGES_PER_CLASS*2} total images...", flush=True)
+    print(f"📂 Selecting images from: {train_dir}", flush=True)
     
     # Use os.scandir for much faster performance on large folders
     def get_paths(folder, count):

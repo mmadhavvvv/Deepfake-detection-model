@@ -2,13 +2,23 @@ import torch
 import cv2
 import numpy as np
 from torchvision import transforms
+import sys
+import os
+# Add the project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 from models.model_architecture import DeepfakeDetector
 
 # ---------------- DEVICE ----------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ---------------- LOAD MODEL ----------------
-def load_trained_model(model_path="models/best_deepfake_model.pth"):
+def load_trained_model(model_path=None):
+    if model_path is None:
+        # Determine root based on this file's location (src/inference/predict.py)
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        model_path = os.path.join(root, "models", "best_deepfake_model.pth")
+    
     model = DeepfakeDetector()
     model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model = model.to(DEVICE)
