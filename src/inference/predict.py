@@ -8,6 +8,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from models.model_architecture import DeepfakeDetector
+from src.utils.grad_cam import GradCAM, overlay_heatmap
 
 # ---------------- DEVICE ----------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -15,7 +16,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ---------------- LOAD MODEL ----------------
 def load_trained_model(model_path=None):
     if model_path is None:
-        # Determine root based on this file's location (src/inference/predict.py)
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         model_path = os.path.join(root, "models", "best_deepfake_model.pth")
     
@@ -27,8 +27,19 @@ def load_trained_model(model_path=None):
 
 model = load_trained_model()
 
+# Initialize GradCAM lazily
+grad_cam = None
+
+def get_grad_cam():
+    global grad_cam
+    if grad_cam is None:
+        # ResNet-18 last conv layer is layer4
+        target_layer = model.resnet.layer4[-1]
+        grad_cam = GradCAM(model, target_layer)
+    return grad_cam
+
+
 # ---------------- TRANSFORMS ----------------
-# Standard ResNet normalization used in training
 transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((224, 224)),
@@ -47,21 +58,29 @@ def predict_face(face_bgr):
     Returns:
         label (str): Real / Deepfake / Uncertain
         confidence (float): The percentage of certainty
+        heatmap_img (np.array): Image with Grad-CAM overlay (RGB)
     """
-    # 1. Convert BGR (OpenCV) to RGB (what the model expects)
+    # 1. Convert BGR (OpenCV) to RGB
     face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+    
+    # Resize for consistent Grad-CAM overlay
+    face_rgb_resized = cv2.resize(face_rgb, (224, 224))
 
     # 2. Preprocess
-    face_tensor = transform(face_rgb).unsqueeze(0).to(DEVICE)
+    face_tensor = transform(face_rgb_resized).unsqueeze(0).to(DEVICE)
+    face_tensor.requires_grad = True
 
     # 3. Inference
-    with torch.no_grad():
-        logits = model(face_tensor)
-        # Sigmoid turns the raw logit into a probability between 0 and 1
-        # Closer to 1 = Deepfake | Closer to 0 = Real
-        score = torch.sigmoid(logits).item()
+    logits = model(face_tensor)
+    score = torch.sigmoid(logits).item()
 
-    # 4. Logic (Corrected for 1 = Deepfake)
+    # 4. Heatmap Generation
+    gc = get_grad_cam()
+    heatmap = gc.generate_heatmap(face_tensor)
+    heatmap_img = overlay_heatmap(face_rgb_resized, heatmap)
+
+
+    # 5. Logic
     if score > 0.65:
         label = "DEEPFAKE"
         confidence = score * 100
@@ -70,9 +89,10 @@ def predict_face(face_bgr):
         confidence = (1 - score) * 100
     else:
         label = "UNCERTAIN"
-        confidence = score * 100 # or 50% midpoint
+        confidence = score * 100
 
-    return label, confidence
+    return label, confidence, heatmap_img
+
 
 # ---------------- EXAMPLE USAGE ----------------
 if __name__ == "__main__":

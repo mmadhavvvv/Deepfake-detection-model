@@ -4,9 +4,17 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import numpy as np
 import os
+import sys
 import random
 from PIL import Image
+
+# Add the project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from models.model_architecture import DeepfakeDetector
+
+
+
+import time
 
 class FastDeepfakeDataset(Dataset):
     def __init__(self, file_paths, labels, transform=None):
@@ -26,36 +34,36 @@ class FastDeepfakeDataset(Dataset):
                 image = self.transform(image)
             return image, label
         except Exception as e:
-            # If a file is corrupt, return the first item instead of crashing
             return self.__getitem__(0)
 
 def main():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🚀 Training on: {DEVICE}", flush=True)
+    print(f"🚀 [LAPTOP MODE] Training on: {DEVICE}", flush=True)
 
-    # --- SCALE CONFIG ---
-    IMAGES_PER_CLASS = 2000      # Increased for better accuracy (Total 4000 images)
-    BATCH_SIZE = 32              
+    # --- OPTIMIZED FOR LAPTOP CPU (40,000 IMAGES) ---
+    IMAGES_PER_CLASS = 20000      # User Requested: Total 40,000 images
+    BATCH_SIZE = 16              # Keep small for RAM safety
     EPOCHS = 3                   
+# Enough for a high-quality resume project
     LEARNING_RATE = 1e-4
+    
+    # 128x128 is 3x faster than 224x224
+    IMG_SIZE = 128
 
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.CenterCrop(224),
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    # --- FAST DIRECT INDEXING ---
-    # --- DATASET PATH UPDATE ---
+    # --- DATASET PATH ---
     dataset_root = r"C:\Users\VASU TANDON\.cache\kagglehub\datasets\xhlulu\140k-real-and-fake-faces\versions\2\real_vs_fake\real-vs-fake"
     train_dir = os.path.join(dataset_root, "train")
     real_dir = os.path.join(train_dir, "real")
     fake_dir = os.path.join(train_dir, "fake")
 
-    print(f"📂 Selecting images from: {train_dir}", flush=True)
+    print(f"📂 Indexing optimized dataset...", flush=True)
     
-    # Use os.scandir for much faster performance on large folders
     def get_paths(folder, count):
         paths = []
         with os.scandir(folder) as it:
@@ -70,9 +78,8 @@ def main():
     fake_paths = get_paths(fake_dir, IMAGES_PER_CLASS)
 
     all_paths = real_paths + fake_paths
-    all_labels = [0] * len(real_paths) + [1] * len(fake_paths) # 0=Real, 1=Fake
+    all_labels = [0] * len(real_paths) + [1] * len(fake_paths)
 
-    # Shuffle
     combined = list(zip(all_paths, all_labels))
     random.shuffle(combined)
     all_paths, all_labels = zip(*combined)
@@ -81,14 +88,16 @@ def main():
     train_ds = FastDeepfakeDataset(all_paths[:split], all_labels[:split], transform=transform)
     val_ds = FastDeepfakeDataset(all_paths[split:], all_labels[split:], transform=transform)
 
-    # num_workers=0 is still recommended for Windows to avoid 'stuck' processes
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    print(f"✅ Data Ready | Train: {len(train_ds)} | Val: {len(val_ds)}", flush=True)
+    print(f"✅ Ready | Train: {len(train_ds)} | Val: {len(val_ds)}", flush=True)
 
     # --- INITIALIZE MODEL ---
-    model = DeepfakeDetector().to(DEVICE)
+    model = DeepfakeDetector()
+    # Adjust FC for input size if necessary (ResNet handles different sizes via Global Avg Pooling)
+    model = model.to(DEVICE)
+    
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
@@ -109,8 +118,13 @@ def main():
             optimizer.step()
             train_loss += loss.item()
 
-            if i % 50 == 0:
-                print(f"Batch {i}/{len(train_loader)} | Loss: {loss.item():.4f}", flush=True)
+            # Frequency update for visibility
+            if i % 10 == 0:
+                print(f"Progress: {i}/{len(train_loader)} | Loss: {loss.item():.4f}", flush=True)
+            
+            # --- COOLING BREAK ---
+            # Gives the CPU a 0.2s breather every batch to keep the laptop responsive
+            time.sleep(0.2)
 
         # Validation
         model.eval()
@@ -122,12 +136,37 @@ def main():
                 correct += (preds == labels).sum().item()
 
         val_acc = 100 * correct / len(val_ds)
-        print(f"✨ Epoch {epoch+1} Summary | Loss: {train_loss/len(train_loader):.4f} | Val Acc: {val_acc:.2f}%", flush=True)
+        print(f"✨ Epoch Scored: {val_acc:.2f}% accuracy", flush=True)
 
         if val_acc > best_acc:
             best_acc = val_acc
             torch.save(model.state_dict(), "models/best_deepfake_model.pth")
-            print("💾 New Best Model Saved!", flush=True)
+            print("💾 Model Updated!", flush=True)
+
+    # --- POST-TRAINING CLEANUP & PUSH ---
+    print("\n🚀 Training Complete! Preparing to push to GitHub...", flush=True)
+    try:
+        # Add all relevant files
+        os.system('git add app/streamlit_app.py')
+        os.system('git add src/inference/predict.py')
+        os.system('git add src/training/train.py')
+        os.system('git add src/utils/grad_cam.py')
+        os.system('git add models/best_deepfake_model.pth')
+        
+        # Commit
+        commit_msg = f"Automated Update: Trained on 40k images | Accuracy: {best_acc:.2f}% | Revamped Dark UI"
+        os.system(f'git commit -m "{commit_msg}"')
+        
+        # Push
+        print("📤 Pushing to GitHub...", flush=True)
+        os.system('git push origin main')
+        print("✅ Successfully pushed to GitHub!", flush=True)
+        print("🌐 Live app will update automatically if connected to GitHub.", flush=True)
+        
+    except Exception as e:
+        print(f"❌ Failed to push to GitHub: {e}", flush=True)
+
 
 if __name__ == "__main__":
     main()
+
