@@ -40,9 +40,12 @@ def get_grad_cam():
 
 
 # ---------------- TRANSFORMS ----------------
+# MUST MATCH TRAINING RESOLUTION (128x128 for Laptop Mode)
+IMG_SIZE = 128
+
 transform = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
     transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
@@ -64,11 +67,12 @@ def predict_face(face_bgr):
     face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
     
     # Resize for consistent Grad-CAM overlay
-    face_rgb_resized = cv2.resize(face_rgb, (224, 224))
+    face_rgb_resized = cv2.resize(face_rgb, (IMG_SIZE, IMG_SIZE))
 
     # 2. Preprocess
     face_tensor = transform(face_rgb_resized).unsqueeze(0).to(DEVICE)
     face_tensor.requires_grad = True
+
 
     # 3. Inference
     logits = model(face_tensor)
