@@ -10,38 +10,47 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from models.model_architecture import DeepfakeDetector
 from src.utils.grad_cam import GradCAM, overlay_heatmap
 
-# ---------------- DEVICE ----------------
+# ---------------- MODEL INITIALIZATION ----------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ---------------- LOAD MODEL ----------------
-def load_trained_model(model_path=None):
-    if model_path is None:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        model_path = os.path.join(root, "models", "best_deepfake_model.pth")
-    
-    model = DeepfakeDetector()
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model = model.to(DEVICE)
-    model.eval()
-    return model
+_model_cache = None
 
-model = load_trained_model()
+def get_model():
+    """Lazy loader for the model to ensure weights are loaded only once."""
+    global _model_cache
+    if _model_cache is None:
+        from models.model_architecture import DeepfakeDetector
+        _model_cache = DeepfakeDetector().to(DEVICE)
+        
+        # Load weights
+        weights_path = os.path.join(os.path.dirname(__file__), "..", "..", "models", "best_deepfake_model.pth")
+        if os.path.exists(weights_path):
+            print(f"✅ Loading model weights from: {weights_path}")
+            _model_cache.load_state_dict(torch.load(weights_path, map_location=DEVICE))
+        else:
+            print(f"⚠️ Warning: No trained weights found at {weights_path}. Using random weights.")
+            
+        _model_cache.eval()
+    return _model_cache
 
-# Initialize GradCAM lazily
-grad_cam = None
+# Initialize global Grad-CAM utility
+_grad_cam_cache = None
 
 def get_grad_cam():
-    global grad_cam
-    if grad_cam is None:
-        # ResNet-18 last conv layer is layer4
-        target_layer = model.resnet.layer4[-1]
-        grad_cam = GradCAM(model, target_layer)
-    return grad_cam
+    global _grad_cam_cache
+    model = get_model()
+    if _grad_cam_cache is None:
+        from src.utils.grad_cam import GradCAM
+        # Target the last layer of ResNet-18
+        _grad_cam_cache = GradCAM(model, target_layer)
+    return _grad_cam_cache
+
 
 
 # ---------------- TRANSFORMS ----------------
-# MUST MATCH TRAINING RESOLUTION (128x128 for Laptop Mode)
-IMG_SIZE = 128
+# MUST MATCH TRAINING RESOLUTION (224x224 for High-Res Mode)
+IMG_SIZE = 224
+
 
 transform = transforms.Compose([
     transforms.ToPILImage(),
@@ -71,17 +80,23 @@ def predict_face(face_bgr):
 
     # 2. Preprocess
     face_tensor = transform(face_rgb_resized).unsqueeze(0).to(DEVICE)
+    
+    # Enable gradients FOR GRAD-CAM logic
     face_tensor.requires_grad = True
 
-
     # 3. Inference
-    logits = model(face_tensor)
-    score = torch.sigmoid(logits).item()
+    model = get_model()
+    
+    # We MUST enable grad here even if model is in eval() for Grad-CAM to work
+    with torch.set_grad_enabled(True):
+        logits = model(face_tensor)
+        score = torch.sigmoid(logits).item()
 
-    # 4. Heatmap Generation
-    gc = get_grad_cam()
-    heatmap = gc.generate_heatmap(face_tensor)
-    heatmap_img = overlay_heatmap(face_rgb_resized, heatmap)
+        # 4. Heatmap Generation
+        gc = get_grad_cam()
+        heatmap = gc.generate_heatmap(face_tensor)
+        heatmap_img = overlay_heatmap(face_rgb_resized, heatmap)
+
 
 
     # 5. Logic

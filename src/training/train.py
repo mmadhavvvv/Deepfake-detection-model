@@ -40,21 +40,22 @@ def main():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"🚀 [LAPTOP MODE] Training on: {DEVICE}", flush=True)
 
-    # --- OPTIMIZED FOR LAPTOP CPU (40,000 IMAGES) ---
-    IMAGES_PER_CLASS = 20000      # User Requested: Total 40,000 images
-    BATCH_SIZE = 16              # Keep small for RAM safety
-    EPOCHS = 3                   
-# Enough for a high-quality resume project
-    LEARNING_RATE = 1e-4
+    # --- PROFESSIONAL SCALE (40,000 IMAGES) ---
+    IMAGES_PER_CLASS = 20000      # 20k Real + 20k Fake
+    BATCH_SIZE = 16              # Reduced batch size for 224x224 RAM safety
+    EPOCHS = 4                   
+    LEARNING_RATE = 5e-5         
     
-    # 128x128 is 3x faster than 224x224
-    IMG_SIZE = 128
+    # Standard High Resolution
+    IMG_SIZE = 224
 
     transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.RandomHorizontalFlip(), # Add variety
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+
 
     # --- DATASET PATH ---
     dataset_root = r"C:\Users\VASU TANDON\.cache\kagglehub\datasets\xhlulu\140k-real-and-fake-faces\versions\2\real_vs_fake\real-vs-fake"
@@ -64,18 +65,26 @@ def main():
 
     print(f"📂 Indexing optimized dataset...", flush=True)
     
-    def get_paths(folder, count):
+    print(f"📂 Heavy Indexing of full corpus...", flush=True)
+    
+    def get_all_paths(folder):
         paths = []
         with os.scandir(folder) as it:
             for entry in it:
                 if entry.is_file() and entry.name.lower().endswith(('.png', '.jpg', '.jpeg')):
                     paths.append(entry.path)
-                    if len(paths) >= count:
-                        break
         return paths
 
-    real_paths = get_paths(real_dir, IMAGES_PER_CLASS)
-    fake_paths = get_paths(fake_dir, IMAGES_PER_CLASS)
+    # Get every single available path
+    all_real_available = get_all_paths(real_dir)
+    all_fake_available = get_all_paths(fake_dir)
+    
+    # Shuffle the FULL lists before picking our 20k
+    random.shuffle(all_real_available)
+    random.shuffle(all_fake_available)
+
+    real_paths = all_real_available[:IMAGES_PER_CLASS]
+    fake_paths = all_fake_available[:IMAGES_PER_CLASS]
 
     all_paths = real_paths + fake_paths
     all_labels = [0] * len(real_paths) + [1] * len(fake_paths)
@@ -83,6 +92,7 @@ def main():
     combined = list(zip(all_paths, all_labels))
     random.shuffle(combined)
     all_paths, all_labels = zip(*combined)
+
 
     split = int(0.85 * len(all_paths))
     train_ds = FastDeepfakeDataset(all_paths[:split], all_labels[:split], transform=transform)
@@ -152,6 +162,8 @@ def main():
         os.system('git add src/training/train.py')
         os.system('git add src/utils/grad_cam.py')
         os.system('git add models/best_deepfake_model.pth')
+        os.system('git add README.md')
+
         
         # Commit
         commit_msg = f"Automated Update: Trained on 40k images | Accuracy: {best_acc:.2f}% | Revamped Dark UI"

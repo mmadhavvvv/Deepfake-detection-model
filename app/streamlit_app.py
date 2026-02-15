@@ -257,12 +257,16 @@ def main_app():
         with st.status("🔮 Scanning Spatial Anomalies...", expanded=True) as status:
             st.write("Detecting Facial Coordinates...")
             face_img, _ = detect_and_crop_face(image_cv)
-            if face_img is not None:
-                st.write("Extracting Feature Entropy...")
-                label, confidence, heatmap_img = predict_face(face_img)
-                status.update(label="Analysis Complete", state="complete", expanded=False)
-            else:
-                status.update(label="Face Not Found", state="error")
+            
+            # FALLBACK: If detection fails, the image might already be a face crop
+            if face_img is None:
+                st.write("⚠️ Standard detection failed. Using raw frame as fallback...")
+                face_img = cv2.resize(image_cv, (128, 128))
+            
+            st.write("Extracting Feature Entropy...")
+            label, confidence, heatmap_img = predict_face(face_img)
+            status.update(label="Analysis Complete", state="complete", expanded=False)
+
 
         if face_img is not None:
             # Result Visualization
