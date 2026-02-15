@@ -42,8 +42,10 @@ def get_grad_cam():
     if _grad_cam_cache is None:
         from src.utils.grad_cam import GradCAM
         # Target the last layer of ResNet-18
+        target_layer = model.resnet.layer4[-1]
         _grad_cam_cache = GradCAM(model, target_layer)
     return _grad_cam_cache
+
 
 
 
