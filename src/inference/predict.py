@@ -86,31 +86,60 @@ def predict_face(face_bgr):
     # Enable gradients FOR GRAD-CAM logic
     face_tensor.requires_grad = True
 
-    # 3. Inference
+    # 3. Inference with TTA (Test-Time Augmentation)
+    # We predict on 3 versions of the face and average the results
     model = get_model()
     
-    # We MUST enable grad here even if model is in eval() for Grad-CAM to work
+    # Version 1: Original
+    t1 = face_tensor
+    
+    # Version 2: Horizontal Flip
+    t2 = torch.flip(face_tensor, [3])
+    
+    # Version 3: Slight Center Crop (Zoom)
+    # Crop 10% from edges then resize back to 224
+    crop_size = int(IMG_SIZE * 0.9)
+    tr_crop = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.CenterCrop(crop_size),
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    t3 = tr_crop(face_rgb_resized).unsqueeze(0).to(DEVICE)
+    
     with torch.set_grad_enabled(True):
-        logits = model(face_tensor)
-        score = torch.sigmoid(logits).item()
+        # Get scores for all 3 views
+        l1 = model(t1)
+        l2 = model(t2)
+        l3 = model(t3)
+        
+        s1 = torch.sigmoid(l1).item()
+        s2 = torch.sigmoid(l2).item()
+        s3 = torch.sigmoid(l3).item()
+        
+        # Average the scores (TTA Ensemble)
+        score = (s1 + s2 + s3) / 3.0
 
-        # 4. Heatmap Generation
+        # 4. Generate Heatmap only on the original
         gc = get_grad_cam()
-        heatmap = gc.generate_heatmap(face_tensor)
+        heatmap = gc.generate_heatmap(t1)
         heatmap_img = overlay_heatmap(face_rgb_resized, heatmap)
 
-
-
     # 5. Logic
-    if score > 0.65:
+    # 🚨 AGGRESSIVE MODE: Flag as Fake if TTA Average > 30%
+    if score > 0.30:
         label = "DEEPFAKE"
         confidence = score * 100
-    elif score < 0.35:
+    else:
         label = "REAL"
         confidence = (1 - score) * 100
-    else:
-        label = "UNCERTAIN"
-        confidence = score * 100
+
+    print(f"🔍 TTA DEBUG: Normal:{s1:.4f} Flip:{s2:.4f} Zoom:{s3:.4f} | AVG: {score:.4f} | Label: {label}")
+
+
+
+
 
     return label, confidence, heatmap_img
 

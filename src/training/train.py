@@ -43,7 +43,7 @@ def main():
     # --- PROFESSIONAL SCALE (40,000 IMAGES) ---
     IMAGES_PER_CLASS = 20000      # 20k Real + 20k Fake
     BATCH_SIZE = 16              # Reduced batch size for 224x224 RAM safety
-    EPOCHS = 4                   
+    EPOCHS = 6                   # Increased epochs for harder augmented data
     LEARNING_RATE = 5e-5         
     
     # Standard High Resolution
@@ -51,7 +51,12 @@ def main():
 
     transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.RandomHorizontalFlip(), # Add variety
+        transforms.RandomHorizontalFlip(), 
+        # --- ROBUST AUGMENTATION ---
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1), # Lighting vars
+        transforms.RandomRotation(15), # Head pose vars
+        transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2), # Blur/Compression
+        # ---------------------------
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -110,6 +115,8 @@ def main():
     
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    # Decay LR by half every 2 epochs to fine-tune
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
 
     # --- TRAINING LOOP ---
     best_acc = 0
@@ -152,6 +159,9 @@ def main():
             best_acc = val_acc
             torch.save(model.state_dict(), "models/best_deepfake_model.pth")
             print("💾 Model Updated!", flush=True)
+
+        scheduler.step()
+        print(f"📉 Learning Rate: {scheduler.get_last_lr()[0]:.2e}", flush=True)
 
     # --- POST-TRAINING CLEANUP & PUSH ---
     print("\n🚀 Training Complete! Preparing to push to GitHub...", flush=True)
