@@ -25,10 +25,11 @@ def get_model():
         # Load weights
         weights_path = os.path.join(os.path.dirname(__file__), "..", "..", "models", "best_deepfake_model.pth")
         if os.path.exists(weights_path):
-            print(f"✅ Loading model weights from: {weights_path}")
+            print(f"[SUCCESS] Loading model weights from: {weights_path}")
             _model_cache.load_state_dict(torch.load(weights_path, map_location=DEVICE))
         else:
-            print(f"⚠️ Warning: No trained weights found at {weights_path}. Using random weights.")
+            print(f"[WARNING] No trained weights found at {weights_path}. Using random weights.")
+
             
         _model_cache.eval()
     return _model_cache
@@ -119,9 +120,16 @@ def predict_face(face_bgr):
         s3 = torch.sigmoid(l3).item()
         
         # Average the scores (TTA Ensemble)
-        score = (s1 + s2 + s3) / 3.0
+        raw_score = (s1 + s2 + s3) / 3.0
+        
+        # 🚨 SAFETY BIAS: Boost Fake score by 25% to catch subtle fakes
+        # It's better to false-flag a Real image than let a Fake pass.
+        score = min(raw_score * 1.25, 1.0)
+        
+        print(f"[DEBUG] Raw: {raw_score:.4f} | Boosted: {score:.4f}")
 
         # 4. Generate Heatmap only on the original
+
         gc = get_grad_cam()
         heatmap = gc.generate_heatmap(t1)
         heatmap_img = overlay_heatmap(face_rgb_resized, heatmap)
@@ -135,7 +143,8 @@ def predict_face(face_bgr):
         label = "REAL"
         confidence = (1 - score) * 100
 
-    print(f"🔍 TTA DEBUG: Normal:{s1:.4f} Flip:{s2:.4f} Zoom:{s3:.4f} | AVG: {score:.4f} | Label: {label}")
+    print(f"[DEBUG] TTA Stats: Normal:{s1:.4f} Flip:{s2:.4f} Zoom:{s3:.4f} | AVG: {score:.4f} | Label: {label}")
+
 
 
 
